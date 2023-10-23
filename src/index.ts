@@ -92,7 +92,13 @@ export function apply(ctx: Context, config: Config) {
             playerId: qqnum, 
             score: score || 0
           })
-          let userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+          let userData;
+          if (session.platform === "red") {
+            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
+            userData = {name: temp.mum}
+          } else {
+            userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+          }
           return `
   操作成功，新增内容：
   玩家昵称：${userData.name || userData.user.name}
@@ -122,7 +128,13 @@ export function apply(ctx: Context, config: Config) {
             continue
           }
           let qqnum = /[0-9]+/.exec(i)[0];
-          let userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+          let userData;
+          if (session.platform === "red") {
+            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
+            userData = {name: temp.mum}
+          } else {
+            userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+          }
           let scoreData = await ctx.database.get("scoreboard", {
             guildId: session.event.guild.id,
             playerId: qqnum
@@ -156,7 +168,13 @@ export function apply(ctx: Context, config: Config) {
             continue
           }
           let qqnum = /[0-9]+/.exec(i)[0];
-          let userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+          let userData;
+          if (session.platform === "red") {
+            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
+            userData = {name: temp.mum}
+          } else {
+            userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+          }
           let scoreData = await ctx.database.get("scoreboard", {
             guildId: session.event.guild.id,
             playerId: qqnum
@@ -192,7 +210,13 @@ export function apply(ctx: Context, config: Config) {
         return "记分板为空"
       } else {
         for (let i of scoreData) {
-          let userData = await session.bot.getGuildMember(session.event.guild.id, i.playerId)
+          let userData;
+          if (session.platform === "red") {
+            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+i.playerId+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
+            userData = {name: temp.mum}
+          } else {
+            userData = await session.bot.getGuildMember(session.event.guild.id, i.playerId)
+          }
           result.push(`玩家：${userData.name || userData.user.name}(${i.playerId})\n积分：${i.score}`)
         }
         return result.join("\n---------------\n")
@@ -207,7 +231,13 @@ export function apply(ctx: Context, config: Config) {
           return "你没有at到人"
         }
         let qqnum = /[0-9]+/.exec(player)[0];
-        let userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+        let userData;
+        if (session.platform === "red") {
+          let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
+          userData = {name: temp.mum}
+        } else {
+          userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
+        }
         let scoreData = await ctx.database.get("scoreboard", {
           guildId: session.event.guild.id,
           playerId: qqnum
@@ -293,6 +323,8 @@ export function apply(ctx: Context, config: Config) {
       }
       
     })
+
+    
 
 }
 
