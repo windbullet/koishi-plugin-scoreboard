@@ -25,7 +25,7 @@ export const Config: Schema<Config> = Schema.object({
     .default(false)
 })
 
-export const using = ['database']
+export const inject = ['database']
 
 export const usage = `
 使用方法： 
