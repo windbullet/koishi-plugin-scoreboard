@@ -28,24 +28,26 @@ export const Config: Schema<Config> = Schema.object({
 export const inject = ['database']
 
 export const usage = `
+## 如果你是旧版本用户，由于新版本在数据库表中新增了name字段，需要在数据库中的scoreboard表中向空的name字段中添加该玩家的昵称或删除该项目，否则可能会遇到bug
+
 使用方法： 
 
 添加玩家 <@某人> [积分] （不传入积分时默认为0）  
 
 删除玩家 <@某人>  
 
-增减积分 <+/-数字> <玩家> （调整玩家的积分）  
+增减积分 <+/-数字> <...玩家> （调整玩家的积分，可批量更改）  
 
-设定积分 <数字> <玩家> （设定玩家的积分为指定数值）  
+设定积分 <数字> <...玩家> （设定玩家的积分为指定数值，可批量更改）  
 
-查询积分 （按分数降序或升序输出整个计分板，默认为降序）
+查询积分 （按分数降序或升序输出该群的整个计分板，默认为降序）
   可选参数：-r 升序输出计分板  
 
-添加计分管理员 <@某人> （将指定用户添加为计分板管理员）
+添加计分管理员 <@某人> （将指定用户添加为该群的计分板管理员）
 
-移除计分管理员 <@某人> （将指定用户移除出计分版管理员）
+移除计分管理员 <@某人> （将指定用户移除出该群的计分板管理员）
 
-除查询积分外，均需要超级管理员或计分管理员权限（可在配置页面设置，或群内添加）
+除查询积分外，均需要超级管理员或计分管理员权限（可在配置页面设置或群内添加）
 `
 
 declare module 'koishi' {
@@ -59,7 +61,8 @@ export interface Scoreboard {
   guildId: string;
   playerId: string;
   score: number;
-  id: number
+  id: number;
+  name: string;
 }
 
 export interface ScoreboardAdmins {
@@ -85,20 +88,17 @@ export function apply(ctx: Context, config: Config) {
         let scoreData = await ctx.database.get("scoreboard", {
           guildId: session.event.guild.id,
           playerId: qqnum
-        })
+        })   
         if (scoreData.length === 0) {
+          let userData;
+          if (session.platform !== "red") userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
           await ctx.database.create("scoreboard", {
             guildId: session.event.guild.id, 
             playerId: qqnum, 
+            name: session.elements[1].attrs.name ?? (userData.name || userData.user.name),
             score: score || 0
           })
-          let userData;
-          if (session.platform === "red") {
-            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
-            userData = {name: temp.mum}
-          } else {
-            userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
-          }
+          if (!userData) userData = {name: session.elements[1].attrs.name}
           return `
   操作成功，新增内容：
   玩家昵称：${userData.name || userData.user.name}
@@ -127,11 +127,10 @@ export function apply(ctx: Context, config: Config) {
             result.push("这里没at到人")
             continue
           }
-          let qqnum = /[0-9]+/.exec(i)[0];
+          let qqnum = session.elements[1].attrs.id;
           let userData;
           if (session.platform === "red") {
-            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
-            userData = {name: temp.mum}
+            userData = {name: session.elements[1].attrs.name}
           } else {
             userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
           }
@@ -167,11 +166,10 @@ export function apply(ctx: Context, config: Config) {
             result.push("这里没at到人")
             continue
           }
-          let qqnum = /[0-9]+/.exec(i)[0];
+          let qqnum = session.elements[1].attrs.id;
           let userData;
           if (session.platform === "red") {
-            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
-            userData = {name: temp.mum}
+            userData = {name: session.elements[1].attrs.name}
           } else {
             userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
           }
@@ -212,8 +210,7 @@ export function apply(ctx: Context, config: Config) {
         for (let i of scoreData) {
           let userData;
           if (session.platform === "red") {
-            let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+i.playerId+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
-            userData = {name: temp.mum}
+            userData = {name: i.name}
           } else {
             userData = await session.bot.getGuildMember(session.event.guild.id, i.playerId)
           }
@@ -230,11 +227,10 @@ export function apply(ctx: Context, config: Config) {
         if (!/at/.test(player)) {
           return "你没有at到人"
         }
-        let qqnum = /[0-9]+/.exec(player)[0];
+        let qqnum = session.elements[1].attrs.id;
         let userData;
         if (session.platform === "red") {
-          let temp = await ctx.http.get("https://api.linhun.vip/api/qqnick?qq="+qqnum+"&apiKey=c1bfa626a567d68fd1f92bae9a22ed18")
-          userData = {name: temp.mum}
+          userData = {name: session.elements[1].attrs.name}
         } else {
           userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
         }
@@ -281,7 +277,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.guild().command("计分板").subcommand(".添加计分管理员 <user:string>").alias("添加计分管理员")
     .action(async ({session}, user) => {
       let admins = await getAdmins(ctx, session)
-      let qqnum = /[0-9]+/.exec(user);
+      let qqnum = session.elements[1].attrs.id;
       if ( !((config.超级管理员.includes(session.event.user.id)) || (config.自我繁殖 && admins?.includes(session.event.user.id))) ) {
         return "你的权限不足"
       } else if (!/at/.test(user)) {
@@ -306,7 +302,7 @@ export function apply(ctx: Context, config: Config) {
     ctx.guild().command("计分板").subcommand(".移除计分管理员 <user:string>").alias("移除计分管理员")
     .action(async ({session}, user) => {
       let admins = await getAdmins(ctx, session)
-      let qqnum = /[0-9]+/.exec(user);
+      let qqnum = session.elements[1].attrs.id;
       if ( !((config.超级管理员.includes(session.event.user.id)) || (config.自相残杀 && admins?.includes(session.event.user.id))) ) {
         return "你的权限不足"
       } else if (!/at/.test(user)) {
@@ -340,6 +336,7 @@ async function extendTable(ctx) {
     id: "unsigned",
     guildId: "text",
     playerId: "text",
+    name: "text",
     score: "double",
   }, {primary: 'id', autoInc: true})
 
