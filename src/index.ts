@@ -40,7 +40,7 @@ export const usage = `
 
 设定积分 <数字> <...玩家> （设定玩家的积分为指定数值，可批量更改）  
 
-查询积分 （按分数降序或升序输出该群的整个计分板，默认为降序）
+查询积分 [分页] （按分数降序或升序输出该群的计分板，默认为降序；可指定分页，一页五个玩家）
   可选参数：-r 升序输出计分板  
 
 添加计分管理员 <@某人> （将指定用户添加为该群的计分板管理员）
@@ -194,18 +194,20 @@ export function apply(ctx: Context, config: Config) {
       
     })
   
-  ctx.guild().command("计分板").subcommand(".查询积分", "按排序输出计分板").alias("查询积分")
-    .usage("默认为降序输出")
+  ctx.guild().command("计分板").subcommand(".查询积分 [page:number]", "按排序输出计分板").alias("查询积分")
+    .usage("可指定分页（一页五个玩家），默认为按分数降序输出")
     .option("reversed", "-r 升序输出计分板")
-    .action(async ({session, options}) => {
+    .action(async ({session, options}, page) => {
       let result = []
       let scoreData = await ctx.database
         .select("scoreboard")
         .where({guildId: session.event.guild.id})
         .orderBy("score", options.reversed?"asc":"desc")
+        .limit(5)
+        .offset((page - 1) * 5)
         .execute()
       if (scoreData.length === 0) {
-        return "记分板为空"
+        return "当前分页为空"
       } else {
         for (let i of scoreData) {
           let userData;
