@@ -4,6 +4,7 @@ import { platform, type } from 'os'
 import { getuid } from 'process'
 import { scheduler } from 'timers/promises'
 import { deflate } from 'zlib'
+import {} from 'koishi-plugin-scoreboard-service'
 
 export const name = 'scoreboard'
 
@@ -25,10 +26,10 @@ export const Config: Schema<Config> = Schema.object({
     .default(false)
 })
 
-export const inject = ['database']
+export const inject = ['database', "scoreboard"]
 
 export const usage = `
-## 如果你是旧版本用户，由于新版本在数据库表中新增了name字段，需要在数据库中的scoreboard表中向空的name字段中添加该玩家的昵称或删除该项目，否则可能会遇到bug
+## 如果你是旧版本用户，你需要将scoreboard表内的内容迁移至scoreboardData表，并将groupName字段填入“默认”
 
 使用方法： 
 
@@ -48,22 +49,15 @@ export const usage = `
 移除计分管理员 <@某人> （将指定用户移除出该群的计分板管理员）
 
 除查询积分外，均需要超级管理员或计分管理员权限（可在配置页面设置或群内添加）
+除添加/移除计分管理员外，均有可选选项-g，可指定操作的分组，不指定时为默认
 `
 
 declare module 'koishi' {
   interface Tables {
-      scoreboard: Scoreboard
       scoreboardAdmins: ScoreboardAdmins
   }
 }
 
-export interface Scoreboard {
-  guildId: string;
-  playerId: string;
-  score: number;
-  id: number;
-  name: string;
-}
 
 export interface ScoreboardAdmins {
   guildId: string;
@@ -78,31 +72,31 @@ export function apply(ctx: Context, config: Config) {
   ctx.guild().command("计分板", "通用计分");
 
   ctx.guild().command("计分板").subcommand(".添加玩家 <player:string> [score:number]", "添加玩家和积分", {checkArgCount: true}).alias("添加玩家")
+    .option("group", '-g <group>')
     .example("计分板.添加玩家 @某人 114")
-    .action(async ({session}, player, score) => {
+    .action(async ({session, options}, player, score) => {
       if (config.超级管理员.includes(session.event.user.id)) {
         if (!/at/.test(player)) {
           return "你没有at到人"
         }
         let qqnum = /[0-9]+/.exec(player)[0];
-        let scoreData = await ctx.database.get("scoreboard", {
-          guildId: session.event.guild.id,
-          playerId: qqnum
-        })   
-        if (scoreData.length === 0) {
+        let scoreData = await ctx.scoreboard.get(options.group ?? "默认", qqnum)   
+        if (scoreData === undefined) {
           let userData;
           if (session.platform !== "red") userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
-          await ctx.database.create("scoreboard", {
-            guildId: session.event.guild.id, 
-            playerId: qqnum, 
-            name: session.elements[1].attrs.name ?? (userData.name || userData.user.name),
-            score: score || 0
-          })
+          await ctx.scoreboard.set(
+            session.event.guild.id, 
+            options.group ?? "默认",
+            qqnum, 
+            score || 0, 
+            session.elements[1].attrs.name ?? (userData.name || userData.user.name),
+          )
           if (!userData) userData = {name: session.elements[1].attrs.name}
           return `
   操作成功，新增内容：
   玩家昵称：${userData.name || userData.user.name}
   玩家ID：${qqnum}
+  分组：${options.group ?? "默认"}
   积分：${score || 0}
   `
         } else {
@@ -117,33 +111,34 @@ export function apply(ctx: Context, config: Config) {
     })
   
   ctx.guild().command("计分板").subcommand(".增减积分 <score:number> <...player:string>", "更改玩家的积分，可批量更改", {checkArgCount: true}).alias("增减积分")
+    .option("group", '-g <group>')
     .example("计分板.增减积分 -10 @koishi @shigma")
-    .action(async ({session}, score, ...player) => {
+    .action(async ({session, options}, score, ...player) => {
       if (config.超级管理员.includes(session.event.user.id)) {
+        console.log(session.elements)
         let result = []
 
-        for (let i of player) {
-          if (!/at/.test(i)) {
+        for (let i = 0; i < player.length; i++) {
+          if (!/<at id="/.test(player[i])) {
             result.push("这里没at到人")
             continue
           }
-          let qqnum = session.elements[1].attrs.id;
+          let qqnum = /(?<=id=")[^"]*(?=")/.exec(player[i])[0];
           let userData;
           if (session.platform === "red") {
-            userData = {name: session.elements[1].attrs.name}
+            userData = {name: /(?<=name=")[^"]*(?=")/.exec(player[i])[0]}
           } else {
             userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
           }
-          let scoreData = await ctx.database.get("scoreboard", {
-            guildId: session.event.guild.id,
-            playerId: qqnum
-          })
-          if (scoreData.length === 0) {
+          let scoreData = await ctx.scoreboard.get(
+            session.event.guild.id,
+            options.group ?? "默认",
+            qqnum
+          )
+          if (scoreData === undefined) {
             result.push(`玩家"${userData.name || userData.user.name}"不存在，已忽略`)
           } else {
-            await ctx.database.set("scoreboard", {guildId: session.event.guild.id, playerId: qqnum}, {
-              score: (scoreData[0].score + score)
-            })
+            await ctx.scoreboard.set(session.event.guild.id, options.group ?? "默认", qqnum, scoreData[0].score + score)
             result.unshift(`玩家"${userData.name || userData.user.name}" 积分${score >= 0 ? "+" + score : score}\n当前积分：${scoreData[0].score + score}`)
           }
         }
@@ -155,34 +150,39 @@ export function apply(ctx: Context, config: Config) {
       
     })
 
-    ctx.guild().command("计分板").subcommand(".设定积分 <score:number> <...player:string>", "设定玩家的积分，可批量设定", {checkArgCount: true}).alias("设定积分")
+  ctx.guild().command("计分板").subcommand(".设定积分 <score:number> <...player:string>", "设定玩家的积分，可批量设定", {checkArgCount: true}).alias("设定积分")
+    .option("group", '-g <group>')
     .example("计分板.设定积分 114 @koishi @shigma")
-    .action(async ({session}, score, ...player) => {
+    .action(async ({session, options}, score, ...player) => {
       if (config.超级管理员.includes(session.event.user.id)) {
         let result = []
 
-        for (let i of player) {
-          if (!/at/.test(i)) {
+        for (let i = 0; i < player.length; i++) {
+          if (!/at/.test(player[i])) {
             result.push("这里没at到人")
             continue
           }
-          let qqnum = session.elements[1].attrs.id;
+          let qqnum = /(?<=id=")[^"]*(?=")/.exec(player[i])[0];
           let userData;
           if (session.platform === "red") {
-            userData = {name: session.elements[1].attrs.name}
+            userData = {name: /(?<=name=")[^"]*(?=")/.exec(player[i])[0]}
           } else {
             userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
           }
-          let scoreData = await ctx.database.get("scoreboard", {
-            guildId: session.event.guild.id,
-            playerId: qqnum
-          })
-          if (scoreData.length === 0) {
+          let scoreData = await ctx.scoreboard.get(
+            session.event.guild.id, 
+            options.group ?? "默认", 
+            qqnum,
+          )
+          if (scoreData === undefined) {
             result.push(`玩家"${userData.name || userData.user.name}"不存在，已忽略`)
           } else {
-            await ctx.database.set("scoreboard", {guildId: session.event.guild.id, playerId: qqnum}, {
-              score: score
-            })
+            await ctx.scoreboard.set(
+              session.event.guild.id,
+              options.group ?? "默认",
+              qqnum,
+              score
+            )
             result.unshift(`玩家"${userData.name || userData.user.name}"\n原积分：${scoreData[0].score}\n当前积分：${score}`)
           }
         }
@@ -196,35 +196,37 @@ export function apply(ctx: Context, config: Config) {
   
   ctx.guild().command("计分板").subcommand(".查询积分 [page:number]", "按排序输出计分板").alias("查询积分")
     .usage("可指定分页（一页五个玩家），默认为按分数降序输出")
+    .option("group", '-g <group>')
     .option("reversed", "-r 升序输出计分板")
     .action(async ({session, options}, page) => {
       let result = []
-      let scoreData = await ctx.database
-        .select("scoreboard")
-        .where({guildId: session.event.guild.id})
-        .orderBy("score", options.reversed?"asc":"desc")
-        .limit(5)
-        .offset((page - 1) * 5)
-        .execute()
+      let scoreData = await ctx.scoreboard.getBySort(
+        session.event.guild.id,
+        options.group ?? "默认",
+        5,
+        ((page ?? 0) - 1) * 5,
+        options.reversed
+      )
       if (scoreData.length === 0) {
-        return "当前分页为空"
+        return "当前分页为空\n\n分组：" + (options.group ?? "默认")
       } else {
         for (let i of scoreData) {
           let userData;
           if (session.platform === "red") {
-            userData = {name: i.name}
+            userData = {name: i.playerName}
           } else {
             userData = await session.bot.getGuildMember(session.event.guild.id, i.playerId)
           }
           result.push(`玩家：${userData.name || userData.user.name}(${i.playerId})\n积分：${i.score}`)
         }
-        return result.join("\n---------------\n")
+        return result.join("\n---------------\n") + "\n\n分组：" + (options.group ?? "默认")
       }
     })
 
   ctx.guild().command("计分板").subcommand(".删除玩家 <player:string>", "在计分板中删除一个玩家", {checkArgCount: true}).alias("删除玩家")
+    .option("group", '-g <group>')
     .example("计分板.删除玩家 @koishi")
-    .action(async ({session}, player) => {
+    .action(async ({session, options}, player) => {
       if (config.超级管理员.includes(session.event.user.id)) {
         if (!/at/.test(player)) {
           return "你没有at到人"
@@ -236,18 +238,9 @@ export function apply(ctx: Context, config: Config) {
         } else {
           userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
         }
-        let scoreData = await ctx.database.get("scoreboard", {
-          guildId: session.event.guild.id,
-          playerId: qqnum
-        })
-        if (scoreData.length === 0) {
+        let success = await ctx.scoreboard.remove(session.event.guild.id, options.group ?? "默认", qqnum)
+        if (!success) {
           return "操作失败，找不到该玩家"
-        } else {
-          await ctx.database.remove("scoreboard", {
-            guildId: session.event.guild.id,
-            playerId: qqnum
-          })
-          return `已删除玩家"${userData.name || userData.user.name}"\n原积分：${scoreData[0].score}`
         }
       } else {
         return "你的权限不足"
@@ -255,14 +248,13 @@ export function apply(ctx: Context, config: Config) {
     })
 
   ctx.guild().command("计分板").subcommand(".清空计分板").alias("清空计分板")
-    .action(async ({session}) => {
+    .option("group", '-g <group>')
+    .action(async ({session, options}) => {
       if (config.超级管理员.includes(session.event.user.id)) {
         session.send("你确定要清空计分板吗，不能还原！（确定/取消）")
         switch (await session.prompt(30000)) {
           case "确定":
-            await ctx.database.remove("scoreboard", {
-              guildId: session.event.guild.id
-            })
+            await ctx.scoreboard.clear(options.group ?? "默认", session.event.guild.id)
             return "已清空当前群的计分板"
           case "取消":
             return "已取消"
@@ -334,14 +326,6 @@ async function getAdmins(ctx, session) {
 }
 
 async function extendTable(ctx) {
-  await ctx.model.extend("scoreboard", {
-    id: "unsigned",
-    guildId: "text",
-    playerId: "text",
-    name: "text",
-    score: "double",
-  }, {primary: 'id', autoInc: true})
-
   await ctx.model.extend("scoreboardAdmins", {
     id: "unsigned",
     guildId: "text",
