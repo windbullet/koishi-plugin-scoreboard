@@ -204,7 +204,7 @@ export function apply(ctx: Context, config: Config) {
         session.event.guild.id,
         options.group ?? "默认",
         5,
-        ((page ?? 0) - 1) * 5,
+        ((page ?? 1) - 1) * 5,
         options.reversed
       )
       if (scoreData.length === 0) {
