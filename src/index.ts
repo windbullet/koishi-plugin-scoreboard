@@ -1,9 +1,4 @@
-import { reverse } from 'dns'
-import { Context, Schema } from 'koishi'
-import { platform, type } from 'os'
-import { getuid } from 'process'
-import { scheduler } from 'timers/promises'
-import { deflate } from 'zlib'
+import { Context, Schema, h } from 'koishi'
 import {} from 'koishi-plugin-scoreboard-service'
 
 export const name = 'scoreboard'
@@ -81,7 +76,7 @@ export function apply(ctx: Context, config: Config) {
         }
         let qqnum = /[0-9]+/.exec(player)[0];
         let scoreData = await ctx.scoreboard.get(options.group ?? "默认", qqnum)   
-        if (scoreData === undefined) {
+        if (scoreData.length === 0) {
           let userData;
           if (session.platform !== "red") userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
           await ctx.scoreboard.set(
@@ -89,9 +84,9 @@ export function apply(ctx: Context, config: Config) {
             options.group ?? "默认",
             qqnum, 
             score || 0, 
-            session.elements[1].attrs.name ?? (userData.name || userData.user.name),
+            h.select(session.elements, 'at').slice(-1)[0].attrs.name ?? (userData.name || userData.user.name),
           )
-          if (!userData) userData = {name: session.elements[1].attrs.name}
+          if (!userData) userData = {name: h.select(session.elements, 'at').slice(-1)[0].attrs.name}
           return `
   操作成功，新增内容：
   玩家昵称：${userData.name || userData.user.name}
@@ -115,7 +110,6 @@ export function apply(ctx: Context, config: Config) {
     .example("计分板.增减积分 -10 @koishi @shigma")
     .action(async ({session, options}, score, ...player) => {
       if (config.超级管理员.includes(session.event.user.id)) {
-        console.log(session.elements)
         let result = []
 
         for (let i = 0; i < player.length; i++) {
@@ -135,7 +129,7 @@ export function apply(ctx: Context, config: Config) {
             options.group ?? "默认",
             qqnum
           )
-          if (scoreData === undefined) {
+          if (scoreData.length === 0) {
             result.push(`玩家"${userData.name || userData.user.name}"不存在，已忽略`)
           } else {
             await ctx.scoreboard.set(session.event.guild.id, options.group ?? "默认", qqnum, scoreData[0].score + score)
@@ -174,7 +168,7 @@ export function apply(ctx: Context, config: Config) {
             options.group ?? "默认", 
             qqnum,
           )
-          if (scoreData === undefined) {
+          if (scoreData.length === 0) {
             result.push(`玩家"${userData.name || userData.user.name}"不存在，已忽略`)
           } else {
             await ctx.scoreboard.set(
@@ -231,17 +225,21 @@ export function apply(ctx: Context, config: Config) {
         if (!/at/.test(player)) {
           return "你没有at到人"
         }
-        let qqnum = session.elements[1].attrs.id;
+        let qqnum = h.select(session.elements, 'at').slice(-1)[0].attrs.id;
         let userData;
         if (session.platform === "red") {
-          userData = {name: session.elements[1].attrs.name}
+          userData = {name: h.select(session.elements, 'at').slice(-1)[0].attrs.name}
         } else {
           userData = await session.bot.getGuildMember(session.event.guild.id, qqnum)
         }
+        let oldData = await ctx.scoreboard.get(session.event.guild.id, options.group ?? "默认", qqnum)
         let success = await ctx.scoreboard.remove(session.event.guild.id, options.group ?? "默认", qqnum)
-        if (!success) {
+        if (success === false) {
           return "操作失败，找不到该玩家"
         }
+        return `
+已删除玩家"${userData.name || userData.user.name}"
+原积分：${oldData[0].score}`
       } else {
         return "你的权限不足"
       }
@@ -271,7 +269,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.guild().command("计分板").subcommand(".添加计分管理员 <user:string>").alias("添加计分管理员")
     .action(async ({session}, user) => {
       let admins = await getAdmins(ctx, session)
-      let qqnum = session.elements[1].attrs.id;
+      let qqnum = h.select(session.elements, 'at').slice(-1)[0].attrs.id;
       if ( !((config.超级管理员.includes(session.event.user.id)) || (config.自我繁殖 && admins?.includes(session.event.user.id))) ) {
         return "你的权限不足"
       } else if (!/at/.test(user)) {
@@ -296,7 +294,7 @@ export function apply(ctx: Context, config: Config) {
     ctx.guild().command("计分板").subcommand(".移除计分管理员 <user:string>").alias("移除计分管理员")
     .action(async ({session}, user) => {
       let admins = await getAdmins(ctx, session)
-      let qqnum = session.elements[1].attrs.id;
+      let qqnum = h.select(session.elements, 'at').slice(-1)[0].attrs.id;
       if ( !((config.超级管理员.includes(session.event.user.id)) || (config.自相残杀 && admins?.includes(session.event.user.id))) ) {
         return "你的权限不足"
       } else if (!/at/.test(user)) {
@@ -319,14 +317,14 @@ export function apply(ctx: Context, config: Config) {
 }
 
 
-async function getAdmins(ctx, session) {
-  return (await ctx.model.get("scoreboardAdmins", {
+async function getAdmins(ctx: Context, session) {
+  return (await ctx.database.get("scoreboardAdmins", {
     guildId: session.event.guild.id,
   }))[0]?.adminId
 }
 
-async function extendTable(ctx) {
-  await ctx.model.extend("scoreboardAdmins", {
+async function extendTable(ctx: Context) {
+  ctx.model.extend("scoreboardAdmins", {
     id: "unsigned",
     guildId: "text",
     adminId: "list"

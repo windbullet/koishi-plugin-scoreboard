@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-scoreboard",
   "description": "适用于各种情况的通用计分板！支持排行榜，积分加减等功能，@某个人就能调整他的积分，十分方便！",
-  "version": "0.6.3",
+  "version": "0.6.5",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
@@ -14,21 +14,26 @@
     "type": "git",
     "url": "git+https://github.com/windbullet/koishi-plugin-scoreboard.git"
   },
-  "scripts": {},
   "keywords": [
     "chatbot",
     "koishi",
     "plugin"
   ],
   "peerDependencies": {
-    "koishi": "^4.14.4"
+    "koishi": "^4.16.8"
   },
   "koishi": {
     "service": {
-      "required": ["database", "scoreboard"],    
-      "optional": [],       
+      "required": [
+        "database",
+        "scoreboard"
+      ],
+      "optional": [],
       "implements": []
     },
-    "locales": ["en", "zh"]
+    "locales": [
+      "en",
+      "zh"
+    ]
   }
 }
